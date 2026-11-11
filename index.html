@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tarjeta de fidelidad</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--bg:#f6f1ea;--card:#fff;--ink:#2a211b;--mut:#8a7d72;--ac:#b5532c;--ac2:#f3dccd;--ok:#3f8f5b;--line:#eadfd3}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+h1,h2,h3{font-family:Fraunces,serif;margin:0 0 .5rem}.wrap{max-width:980px;margin:auto;padding:16px}
+.box{background:var(--card);border-radius:20px;padding:20px;margin-bottom:16px;box-shadow:0 2px 14px #2a211b12}
+input,textarea{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:12px;font:inherit;background:#fff;margin:4px 0}
+button{font:inherit;font-weight:600;border:0;border-radius:12px;padding:10px 16px;background:var(--ac);color:#fff;cursor:pointer}
+button.g{background:var(--ac2);color:var(--ac)}button.r{background:#f7dcd8;color:#b3261e}button:disabled{opacity:.5}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.login{max-width:380px;margin:12vh auto}.err{color:#b3261e;min-height:1.4em}
+.stamp{background:linear-gradient(145deg,#b5532c,#8a3a1b);color:#fff;border-radius:26px;padding:24px;box-shadow:0 12px 30px #b5532c44}
+.slots{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:18px 0}
+.slot{aspect-ratio:1;border-radius:50%;border:2px dashed #ffffff77;display:grid;place-items:center;font-size:1.5rem}
+.slot.on{background:#fff;border:2px solid #fff;color:var(--ac)}.slot.pop{animation:pop .6s cubic-bezier(.2,1.6,.4,1)}
+@keyframes pop{0%{transform:scale(0) rotate(-40deg)}100%{transform:scale(1) rotate(0)}}
+.bar{height:8px;background:#ffffff40;border-radius:9px;overflow:hidden}.bar i{display:block;height:100%;background:#fff;transition:width .6s}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:var(--ac2);border-radius:16px;padding:14px}.stat b{font:700 1.8rem Fraunces,serif;display:block}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.row:last-child{border:0}.m{color:var(--mut);font-size:13px}.tag{font-size:12px;padding:2px 9px;border-radius:9px;background:var(--ac2);color:var(--ac)}
+.tag.ok{background:#dcefe2;color:var(--ok)}.tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.tabs button{background:#fff;color:var(--ink)}.tabs button.a{background:var(--ac);color:#fff}
+.inl{display:flex;gap:8px;flex-wrap:wrap}.inl>*{flex:1;min-width:120px}.inl button{flex:0 0 auto}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:14px;opacity:0;transition:.3s;pointer-events:none;max-width:90vw;z-index:9}
+#toast.s{opacity:1}.hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<div id="toast"></div>
+<script>
+// ====== CONFIGURACIÓN: pegá los datos de tu proyecto (Settings > API) ======
+const SUPABASE_URL = 'https://ufykmlaedcisudixgape.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVmeWttbGFlZGNpc3VkaXhnYXBlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQzNzgyNjQsImV4cCI6MjEwOTk1NDI2NH0.bgkULRaPt6Z0Dp1GLKFwR6y6HBXWI1T1JT7tzYvfPdc';
+// ==========================================================================
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = s => document.querySelector(s), app = $('#app');
+const email = u => u.trim().toLowerCase() + '@tarjeta-fidelidad.app';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fd = d => new Date(d).toLocaleString('es-AR');
+let me, cfg, rewards = [], prev = null, chan = [], sel = null, clients = [], tab = 'cli';
+function toast(m){const t=$('#toast');t.textContent=m;t.className='s';clearTimeout(t._t);t._t=setTimeout(()=>t.className='',3500)}
+const bad = (e) => { if (e) { toast(e.message); return true } };
+
+function loginView(msg = '') {
+  app.innerHTML = `<div class="box login"><h1>Tarjeta de fidelidad</h1><p class="m">Ingresá con tu usuario</p>
+  <form id="lf"><input id="u" placeholder="Usuario" autocomplete="username" required>
+  <input id="p" type="password" placeholder="Contraseña" autocomplete="current-password" required>
+  <p class="err" id="er">${esc(msg)}</p><button style="width:100%">Entrar</button></form></div>`;
+  $('#lf').onsubmit = async e => {
+    e.preventDefault();
+    const { error } = await sb.auth.signInWithPassword({ email: email($('#u').value), password: $('#p').value });
+    if (error) return $('#er').textContent = /Invalid login/i.test(error.message) ? 'Usuario o contraseña incorrectos' : 'Error: ' + error.message;
+    boot();
+  };
+}
+async function logout(){chan.forEach(c=>sb.removeChannel(c));chan=[];await sb.auth.signOut();prev=null;loginView()}
+
+async function boot() {
+  if (SUPABASE_KEY.includes('TU-ANON')) return loginView('Falta pegar la clave SUPABASE_KEY dentro de index.html');
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return loginView();
+  const { data: p } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
+  if (!p || p.status !== 'active') { await sb.auth.signOut(); return loginView('Tu cuenta está suspendida o no existe. Consultá en el local.'); }
+  me = p;
+  cfg = (await sb.from('settings').select('*').single()).data || { business_name: 'Mi Local' };
+  await loadRewards();
+  me.role === 'admin' ? adminView() : clientView();
+}
+async function loadRewards(){rewards=(await sb.from('rewards').select('*').order('stamps_required')).data||[]}
+const head = () => `<div class="top"><div><h2>${esc(cfg.business_name)}</h2><span class="m">${esc(me.full_name)} · ${me.role==='admin'?'Administrador':'Cliente'}</span></div><button class="g" onclick="logout()">Salir</button></div>`;
+
+// ================= CLIENTE =================
+async function clientView() {
+  const { data: p } = await sb.from('profiles').select('*').eq('id', me.id).single(); me = p;
+  const [mv, er, nw] = await Promise.all([
+    sb.from('movements').select('*').eq('client_id', me.id).order('created_at', { ascending: false }).limit(50),
+    sb.from('earned_rewards').select('*').eq('client_id', me.id).order('earned_at', { ascending: false }),
+    sb.from('news').select('*').order('created_at', { ascending: false }).limit(10)]);
+  const size = Math.max(10, ...rewards.map(r => r.stamps_required)), nx = rewards.find(r => r.stamps_required > me.stamps);
+  const slots = Array.from({ length: size }, (_, i) => `<div class="slot ${i < me.stamps ? 'on' : ''} ${prev !== null && i >= prev && i < me.stamps ? 'pop' : ''}">${i < me.stamps ? '★' : ''}</div>`).join('');
+  app.innerHTML = head() + `<div class="stamp"><div style="display:flex;justify-content:space-between"><h3 style="margin:0">${esc(cfg.business_name)}</h3><span>${me.stamps}/${size}</span></div>
+  <p style="margin:2px 0;opacity:.85">${esc(me.full_name)}</p><div class="slots" style="grid-template-columns:repeat(${size>10?6:5},1fr)">${slots}</div>
+  <div class="bar"><i style="width:${me.stamps/size*100}%"></i></div>
+  <p style="margin:10px 0 0">${nx ? `Te faltan <b>${nx.stamps_required - me.stamps}</b> sellos para: ${esc(nx.name)}` : '¡Completaste tu tarjeta!'}</p></div><br>
+  <div class="box"><h3>Mis recompensas</h3>${er.data?.length ? er.data.map(r => `<div class="row"><span>🎁 ${esc(r.reward_name)}<br><span class="m">${fd(r.earned_at)}</span></span><span class="tag ${r.delivered ? '' : 'ok'}">${r.delivered ? 'Entregada' : 'Disponible'}</span></div>`).join('') : '<p class="m">Todavía no desbloqueaste recompensas.</p>'}
+  <h3 style="margin-top:16px">Recompensas del local</h3>${rewards.filter(r=>r.active).map(r => `<div class="row"><span>${esc(r.name)}<br><span class="m">${esc(r.description)}</span></span><span class="tag">${r.stamps_required} sellos</span></div>`).join('')}</div>
+  <div class="box"><h3>Novedades</h3>${nw.data?.length ? nw.data.map(n => `<div class="row"><span><b>${esc(n.title)}</b><br>${esc(n.body)}</span><span class="m">${fd(n.created_at)}</span></div>`).join('') : '<p class="m">Sin novedades.</p>'}</div>
+  <div class="box"><h3>Historial de visitas</h3>${mv.data?.length ? mv.data.map(m => `<div class="row"><span>${m.delta > 0 ? '＋ Sello sumado' : '－ Sello quitado'}</span><span class="m">${fd(m.created_at)}</span></div>`).join('') : '<p class="m">Sin movimientos.</p>'}</div>`;
+  prev = me.stamps;
+  if (!chan.length) {
+    const f = { event: '*', schema: 'public' };
+    chan.push(sb.channel('c').on('postgres_changes', { ...f, table: 'profiles', filter: `id=eq.${me.id}` }, clientView)
+      .on('postgres_changes', { ...f, table: 'earned_rewards', filter: `client_id=eq.${me.id}` }, p => { if (p.eventType === 'INSERT') toast('🎉 ¡Desbloqueaste una recompensa: ' + p.new.reward_name + '!'); clientView(); }).subscribe());
+  }
+}
+
+// ================= ADMIN =================
+async function adminView() {
+  app.innerHTML = head() + `<div class="tabs">${[['cli','Clientes'],['usr','Usuarios'],['rew','Recompensas'],['new','Novedades']].map(([k,l]) => `<button class="${tab===k?'a':''}" onclick="tab='${k}';adminView()">${l}</button>`).join('')}</div><div id="body"></div>`;
+  ({ cli: tabClients, usr: tabUsers, rew: tabRewards, new: tabNews })[tab]();
+}
+async function tabClients() {
+  clients = (await sb.from('profiles').select('*').eq('role', 'client').neq('status', 'deleted').order('full_name')).data || [];
+  const { count } = await sb.from('movements').select('*', { count: 'exact', head: true }).gt('delta', 0);
+  const top = [...clients].sort((a, b) => b.total_visits - a.total_visits).slice(0, 5);
+  $('#body').innerHTML = `<div class="grid"><div class="stat"><b>${clients.length}</b>Clientes</div><div class="stat"><b>${count ?? 0}</b>Visitas registradas</div></div><br>
+  <div class="box"><h3>Más visitas</h3>${top.map(c => `<div class="row"><span>${esc(c.full_name)}</span><span class="tag">${c.total_visits} visitas</span></div>`).join('') || '<p class="m">Sin datos.</p>'}</div>
+  <div class="box"><input id="q" placeholder="Buscar por nombre o usuario…" oninput="list()"><div id="lst"></div></div><div id="det"></div>`;
+  list(); if (sel) openC(sel);
+}
+function list() {
+  const q = ($('#q')?.value || '').toLowerCase();
+  $('#lst').innerHTML = clients.filter(c => (c.full_name + c.username).toLowerCase().includes(q)).map(c =>
+    `<div class="row"><span><b>${esc(c.full_name)}</b> <span class="m">@${esc(c.username)}</span> ${c.status !== 'active' ? '<span class="tag">suspendido</span>' : ''}</span><span><span class="tag">${c.stamps} sellos</span> <button class="g" onclick="openC('${c.id}')">Gestionar</button></span></div>`).join('') || '<p class="m">Sin resultados.</p>';
+}
+async function tabUsers() {
+  const { data } = await sb.from('profiles').select('*').neq('status', 'deleted').order('created_at', { ascending: false });
+  $('#body').innerHTML = `<div class="box"><h3>Crear usuario</h3><div class="inl"><input id="nn" placeholder="Nombre completo"><input id="nu" placeholder="Usuario"><input id="np" type="text" placeholder="Contraseña (mín. 6)">
+  <select id="nr" style="padding:11px;border-radius:12px;border:1px solid var(--line)"><option value="client">Cliente</option><option value="admin">Administrador</option></select><button onclick="newUser()">Crear</button></div></div>
+  <div class="box"><h3>Todos los usuarios</h3>${data?.map(u => `<div class="row"><span><b>${esc(u.full_name)}</b> <span class="m">@${esc(u.username)}</span></span><span class="tag">${u.role === 'admin' ? 'Administrador' : 'Cliente'}</span></div>`).join('')}</div>`;
+}
+async function newUser() {
+  const n = $('#nn').value.trim(), u = $('#nu').value.trim().toLowerCase(), p = $('#np').value, role = $('#nr').value;
+  if (!n || !/^[a-z0-9._-]{3,}$/.test(u) || p.length < 6) return toast('Completá nombre, usuario (3+ letras/números) y contraseña de 6+');
+  const tmp = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'tmp' } });
+  const { data, error } = await tmp.auth.signUp({ email: email(u), password: p, options: { data: { username: u, full_name: n } } });
+  if (bad(error)) return;
+  if (role === 'admin') { const { error: e2 } = await sb.from('profiles').update({ role: 'admin' }).eq('id', data.user.id); if (bad(e2)) return; }
+  toast('Usuario creado'); tabUsers();
+}
+async function openC(id) {
+  sel = id; const c = clients.find(x => x.id === id); if (!c) return;
+  const [mv, er] = await Promise.all([sb.from('movements').select('*').eq('client_id', id).order('created_at', { ascending: false }).limit(100), sb.from('earned_rewards').select('*').eq('client_id', id).order('earned_at', { ascending: false })]);
+  $('#det').innerHTML = `<div class="box"><h3>${esc(c.full_name)} <span class="m">@${esc(c.username)}</span></h3><p>Sellos: <b>${c.stamps}</b> · Visitas totales: ${c.total_visits}</p>
+  <input id="nt" placeholder="Nota (opcional)"><div class="inl"><button onclick="adj('${id}',1)">＋ Sumar sello</button><button class="g" onclick="adj('${id}',-1)">－ Quitar sello</button></div>
+  <h3 style="margin-top:16px">Recompensas</h3>${er.data?.map(r => `<div class="row"><span>${esc(r.reward_name)} <span class="m">${fd(r.earned_at)}</span></span>${r.delivered ? `<span class="tag">Entregada ${fd(r.delivered_at)}</span>` : `<button onclick="deliver('${r.id}')">Marcar entregada</button>`}</div>`).join('') || '<p class="m">Ninguna.</p>'}
+  <h3 style="margin-top:16px">Historial</h3>${mv.data?.map(m => `<div class="row"><span>${m.delta > 0 ? '＋' : '－'} ${esc(m.note)} <span class="m">por ${esc(m.admin_name)}</span></span><span class="m">${fd(m.created_at)}</span></div>`).join('') || '<p class="m">Sin movimientos.</p>'}
+  <div class="inl" style="margin-top:14px">${c.status === 'active' ? `<button class="g" onclick="setSt('${id}','suspended')">Suspender</button>` : `<button onclick="setSt('${id}','active')">Reactivar</button>`}<button class="r" onclick="if(confirm('¿Eliminar cliente?'))setSt('${id}','deleted')">Eliminar</button></div></div>`;
+  $('#det').scrollIntoView({ behavior: 'smooth' });
+}
+async function adj(id, d) { const { error } = await sb.rpc('adjust_stamps', { p_client: id, p_delta: d, p_note: $('#nt').value }); if (bad(error)) return; toast(d > 0 ? 'Sello sumado' : 'Sello quitado'); await tabClients(); }
+async function deliver(id) { const { error } = await sb.from('earned_rewards').update({ delivered: true, delivered_at: new Date().toISOString(), delivered_by: me.id }).eq('id', id).eq('delivered', false); if (bad(error)) return; toast('Marcada como entregada'); openC(sel); }
+async function setSt(id, s) { const { error } = await sb.from('profiles').update({ status: s }).eq('id', id); if (bad(error)) return; if (s === 'deleted') sel = null; tabClients(); }
+
+async function tabRewards() {
+  await loadRewards();
+  $('#body').innerHTML = `<div class="box"><h3>Nombre del negocio</h3><div class="inl"><input id="bn" value="${esc(cfg.business_name)}"><button onclick="saveBiz()">Guardar</button></div></div>
+  <div class="box"><h3>Recompensas</h3><p class="m">La tarjeta tiene tantos casilleros como la recompensa más alta (mín. 10).</p>${rewards.map(r => `<div class="inl" style="margin-bottom:8px"><input id="rn${r.id}" value="${esc(r.name)}"><input id="rs${r.id}" type="number" min="1" value="${r.stamps_required}" style="max-width:90px"><button onclick="saveR('${r.id}')">Guardar</button><button class="g" onclick="togR('${r.id}',${!r.active})">${r.active ? 'Desactivar' : 'Activar'}</button><button class="r" onclick="if(confirm('¿Eliminar?'))delR('${r.id}')">✕</button></div>`).join('')}
+  <h3 style="margin-top:14px">Nueva recompensa</h3><div class="inl"><input id="an" placeholder="Nombre"><input id="ad" placeholder="Descripción"><input id="as" type="number" min="1" placeholder="Sellos" style="max-width:90px"><button onclick="addR()">Agregar</button></div></div>`;
+}
+async function saveBiz() { const { error } = await sb.from('settings').update({ business_name: $('#bn').value.trim() || 'Mi Local' }).eq('id', 1); if (bad(error)) return; cfg.business_name = $('#bn').value.trim(); toast('Guardado'); adminView(); }
+async function addR() { const s = +$('#as').value; if (!$('#an').value.trim() || s < 1) return toast('Nombre y sellos requeridos'); const { error } = await sb.from('rewards').insert({ name: $('#an').value.trim(), description: $('#ad').value.trim(), stamps_required: s }); if (!bad(error)) tabRewards(); }
+async function saveR(id) { const s = +$('#rs' + id).value; if (s < 1) return toast('Sellos inválidos'); const { error } = await sb.from('rewards').update({ name: $('#rn' + id).value.trim(), stamps_required: s }).eq('id', id); if (!bad(error)) { toast('Guardado'); tabRewards(); } }
+async function togR(id, a) { const { error } = await sb.from('rewards').update({ active: a }).eq('id', id); if (!bad(error)) tabRewards(); }
+async function delR(id) { const { error } = await sb.from('rewards').delete().eq('id', id); if (!bad(error)) tabRewards(); }
+
+async function tabNews() {
+  const { data } = await sb.from('news').select('*').order('created_at', { ascending: false });
+  $('#body').innerHTML = `<div class="box"><h3>Publicar novedad</h3><input id="tt" placeholder="Título"><textarea id="tb" rows="3" placeholder="Mensaje"></textarea><button onclick="addN()">Publicar</button></div>
+  <div class="box">${data?.map(n => `<div class="row"><span><b>${esc(n.title)}</b><br>${esc(n.body)}</span><button class="r" onclick="delN('${n.id}')">✕</button></div>`).join('') || '<p class="m">Sin novedades.</p>'}</div>`;
+}
+async function addN() { if (!$('#tt').value.trim()) return toast('Falta el título'); const { error } = await sb.from('news').insert({ title: $('#tt').value.trim(), body: $('#tb').value.trim() }); if (!bad(error)) tabNews(); }
+async function delN(id) { await sb.from('news').delete().eq('id', id); tabNews(); }
+
+boot();
+</script>
+</body>
+</html>
